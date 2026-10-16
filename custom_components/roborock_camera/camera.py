@@ -38,7 +38,7 @@ _LOGGER = logging.getLogger(__name__)
 
 PARALLEL_UPDATES = 1
 
-_SDP_POLL_ATTEMPTS = 25
+_SDP_POLL_ATTEMPTS = 60
 _SDP_POLL_DELAY = 0.25
 _ICE_POLL_ATTEMPTS = 20
 _ICE_POLL_DELAY = 0.25
@@ -155,6 +155,7 @@ class RoborockLiveCamera(CoordinatorEntity[RoborockDataUpdateCoordinator], Camer
         self._ice_servers: list[RTCIceServer] = []
         self._negotiate_lock = asyncio.Lock()
         self._removed = False
+        self._last_signal = "none"
 
     async def async_added_to_hass(self) -> None:
         """Fetch TURN credentials so the first viewer can relay media."""
@@ -257,7 +258,13 @@ class RoborockLiveCamera(CoordinatorEntity[RoborockDataUpdateCoordinator], Camer
         offer_sdp: str,
         pin_hash: str,
     ) -> None:
-        """Start the preview, send the offer, and publish the answer."""
+        """Wake the vacuum, start the preview, and publish the answer."""
+        await self._stop_preview()
+        try:
+            await self._send(RoborockCommand.APP_WAKEUP_ROBOT)
+        except HomeAssistantError:
+            _LOGGER.debug("Vacuum wake command failed", exc_info=True)
+        self._raise_if_inactive(session_id, session)
         await self._send(RoborockCommand.CHECK_HOMESEC_PASSWORD, {"password": pin_hash})
         self._raise_if_inactive(session_id, session)
         await self._send(
@@ -275,19 +282,19 @@ class RoborockLiveCamera(CoordinatorEntity[RoborockDataUpdateCoordinator], Camer
         )
         session.preview_started = True
         self._raise_if_inactive(session_id, session)
-        await self._async_refresh_turn(attempts=_TURN_POLL_ATTEMPTS)
         _LOGGER.info("Forwarding the browser video offer for %s", self.entity_id)
         await self._send(
             RoborockCommand.SEND_SDP_TO_ROBOT,
             sdp_offer_payload(offer_sdp),
         )
         self._raise_if_inactive(session_id, session)
-        answer = await self._poll_sdp_answer(session_id, session)
+        answer = await self._poll_sdp_answer(session_id, session, offer_sdp)
         self._raise_if_inactive(session_id, session)
 
         session.ready = True
         _LOGGER.info("Received a camera answer from %s", self.entity_id)
         session.send_message(WebRTCAnswer(answer))
+        await self._async_refresh_turn(attempts=_TURN_POLL_ATTEMPTS)
         pending = session.pending_ice
         session.pending_ice = []
         for candidate in pending:
@@ -337,8 +344,16 @@ class RoborockLiveCamera(CoordinatorEntity[RoborockDataUpdateCoordinator], Camer
         command: RoborockCommand | str,
         params: dict[str, Any] | list[Any] | int | None = None,
     ) -> Any:
-        """Send a signaling command without refreshing the coordinator."""
+        """Send a camera command on the cloud channel.
+
+        The Roborock app exchanges live-view signaling over MQTT. The local
+        channel can acknowledge the same commands while ``get_device_sdp``
+        stays on ``retry``, so camera commands go to the cloud session.
+        """
+        channel = getattr(self.coordinator.properties_api, "_mqtt_rpc_channel", None)
         try:
+            if channel is not None:
+                return await channel.send_command(command, params=params)
             return await self.coordinator.properties_api.command.send(
                 command, params=params
             )
@@ -376,22 +391,49 @@ class RoborockLiveCamera(CoordinatorEntity[RoborockDataUpdateCoordinator], Camer
                 await asyncio.sleep(_SDP_POLL_DELAY)
         _LOGGER.debug("Vacuum TURN server is not ready")
 
-    async def _poll_sdp_answer(self, session_id: str, session: _CameraSession) -> str:
+    async def _poll_sdp_answer(
+        self, session_id: str, session: _CameraSession, offer_sdp: str
+    ) -> str:
         """Poll until the vacuum returns its SDP answer."""
         for _ in range(_SDP_POLL_ATTEMPTS):
             self._raise_if_inactive(session_id, session)
             payload = _first(await self._send(RoborockCommand.GET_DEVICE_SDP))
             self._raise_if_inactive(session_id, session)
-            dev_sdp = payload.get("dev_sdp") if isinstance(payload, dict) else None
-            if isinstance(dev_sdp, str) and dev_sdp != "retry":
-                decoded = _decode_json(dev_sdp)
-                if isinstance(decoded, dict) and isinstance(decoded.get("sdp"), str):
-                    return decoded["sdp"]
+            answer = self._answer_from_payload(payload)
+            if answer is not None:
+                return answer
             await asyncio.sleep(_SDP_POLL_DELAY)
+        _LOGGER.warning(
+            "No camera answer from %s after %.0fs (offer %d bytes, %d video sections, last reply %s)",
+            self.entity_id,
+            _SDP_POLL_ATTEMPTS * _SDP_POLL_DELAY,
+            len(offer_sdp),
+            offer_sdp.count("m=video"),
+            self._last_signal,
+        )
         raise HomeAssistantError(
             translation_domain=DOMAIN,
             translation_key="camera_answer_timeout",
         )
+
+    def _answer_from_payload(self, payload: Any) -> str | None:
+        """Return an SDP answer, and remember a secret-free description of the reply."""
+        dev_sdp = payload.get("dev_sdp") if isinstance(payload, dict) else None
+        if not isinstance(dev_sdp, str) or dev_sdp == "retry":
+            self._last_signal = (
+                "retry" if dev_sdp == "retry" else type(payload).__name__
+            )
+            return None
+        try:
+            decoded = _decode_json(dev_sdp)
+        except (ValueError, json.JSONDecodeError):
+            self._last_signal = "undecodable"
+            return None
+        if isinstance(decoded, dict) and isinstance(decoded.get("sdp"), str):
+            self._last_signal = "answer"
+            return decoded["sdp"]
+        self._last_signal = "unexpected"
+        return None
 
     async def _poll_remote_ice(self, session_id: str, session: _CameraSession) -> None:
         """Forward ICE candidates produced by the vacuum."""
