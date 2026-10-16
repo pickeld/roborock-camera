@@ -1,0 +1,9 @@
+{
+  "entity": {
+    "camera": {
+      "camera": {
+        "default": "mdi:cctv"
+      }
+    }
+  }
+}

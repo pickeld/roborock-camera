@@ -1,0 +1,59 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Roborock account",
+        "description": "Choose the Roborock account that owns the camera vacuum.",
+        "data": {
+          "roborock_entry_id": "Roborock account"
+        }
+      },
+      "pin": {
+        "title": "Video PIN",
+        "description": "Enter the numeric video PIN from the Roborock app. It is stored only as the digest the vacuum requires.",
+        "data": {
+          "camera_pin": "Video PIN"
+        }
+      }
+    },
+    "error": {
+      "pin_required": "Enter the video PIN from the Roborock app."
+    },
+    "abort": {
+      "no_roborock": "Add the built-in Roborock integration and wait until it is running before adding a camera.",
+      "already_configured": "This Roborock account already has a camera integration."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Video PIN",
+        "description": "Leave the field blank to keep the current PIN.",
+        "data": {
+          "camera_pin": "Video PIN"
+        },
+        "data_description": {
+          "camera_pin": "Numeric PIN from the Roborock app. Leave blank to keep the current PIN. Only the digest the vacuum requires is stored."
+        }
+      }
+    }
+  },
+  "entity": {
+    "camera": {
+      "camera": {
+        "name": "Camera"
+      }
+    }
+  },
+  "exceptions": {
+    "camera_pin_required": {
+      "message": "Set the Roborock video PIN in the integration options before viewing the camera."
+    },
+    "camera_answer_timeout": {
+      "message": "The vacuum did not return a camera stream in time."
+    },
+    "command_failed": {
+      "message": "Command {command} failed."
+    }
+  }
+}
