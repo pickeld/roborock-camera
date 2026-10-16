@@ -32,7 +32,7 @@ from roborock.roborock_typing import RoborockCommand
 from webrtc_models import RTCConfiguration, RTCIceCandidateInit, RTCIceServer
 
 from .const import CONF_CAMERA_PIN_HASH, CONF_ROBOROCK_ENTRY_ID, DOMAIN
-from .util import json_b64, sdp_offer_payload
+from .util import json_b64, sdp_offer_payload, shrink_offer
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -282,6 +282,15 @@ class RoborockLiveCamera(CoordinatorEntity[RoborockDataUpdateCoordinator], Camer
         )
         session.preview_started = True
         self._raise_if_inactive(session_id, session)
+        original_bytes = len(offer_sdp)
+        offer_sdp, inline_candidates = shrink_offer(offer_sdp)
+        if len(offer_sdp) != original_bytes:
+            _LOGGER.warning(
+                "Shrunk the browser offer for %s from %d to %d bytes",
+                self.entity_id,
+                original_bytes,
+                len(offer_sdp),
+            )
         _LOGGER.info("Forwarding the browser video offer for %s", self.entity_id)
         await self._send(
             RoborockCommand.SEND_SDP_TO_ROBOT,
@@ -294,6 +303,7 @@ class RoborockLiveCamera(CoordinatorEntity[RoborockDataUpdateCoordinator], Camer
         session.ready = True
         _LOGGER.info("Received a camera answer from %s", self.entity_id)
         session.send_message(WebRTCAnswer(answer))
+        await self._forward_offer_candidates(inline_candidates)
         await self._async_refresh_turn(attempts=_TURN_POLL_ATTEMPTS)
         pending = session.pending_ice
         session.pending_ice = []
@@ -480,6 +490,18 @@ class RoborockLiveCamera(CoordinatorEntity[RoborockDataUpdateCoordinator], Camer
         session.send_message(
             WebRTCCandidate(RTCIceCandidateInit(candidate, **init_kwargs))
         )
+
+    async def _forward_offer_candidates(self, candidates: list[dict[str, Any]]) -> None:
+        """Send addresses that were removed from an oversized browser offer."""
+        for candidate in candidates[:12]:
+            try:
+                await self._send(
+                    RoborockCommand.SEND_ICE_TO_ROBOT,
+                    {"app_ice": json_b64(candidate)},
+                )
+            except HomeAssistantError:
+                _LOGGER.debug("Vacuum rejected an offer candidate", exc_info=True)
+                return
 
     async def _forward_local_ice(self, candidate: RTCIceCandidateInit) -> None:
         """Send one browser ICE candidate to the vacuum."""
