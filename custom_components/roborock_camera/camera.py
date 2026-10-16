@@ -42,6 +42,7 @@ _SDP_POLL_ATTEMPTS = 25
 _SDP_POLL_DELAY = 0.25
 _ICE_POLL_ATTEMPTS = 20
 _ICE_POLL_DELAY = 0.25
+_TURN_POLL_ATTEMPTS = 8
 _VIDEO_QUALITY = "HD"
 
 
@@ -59,6 +60,15 @@ def _first(response: Any) -> Any:
 def _decode_json(payload: str) -> Any:
     """Decode a base64 JSON signaling payload from the robot."""
     return json.loads(b64decode(payload))
+
+
+def _is_ice_url(url: str) -> bool:
+    """Return whether this is a real STUN or TURN address.
+
+    Before a preview starts, the vacuum answers ``retry`` instead of an address.
+    Passing that to the browser prevents the player from opening.
+    """
+    return url.startswith(("turn:", "turns:", "stun:", "stuns:"))
 
 
 def _supports_live_video(coordinator: RoborockDataUpdateCoordinator) -> bool:
@@ -149,6 +159,12 @@ class RoborockLiveCamera(CoordinatorEntity[RoborockDataUpdateCoordinator], Camer
     async def async_added_to_hass(self) -> None:
         """Fetch TURN credentials so the first viewer can relay media."""
         await super().async_added_to_hass()
+        features = self.coordinator.properties_api.device_features
+        if getattr(features, "is_two_key_real_time_video_supported", None) is True:
+            _LOGGER.info(
+                "%s may require a press of the power button on the robot to show video",
+                self.entity_id,
+            )
         await self._async_refresh_turn()
 
     async def async_will_remove_from_hass(self) -> None:
@@ -259,6 +275,8 @@ class RoborockLiveCamera(CoordinatorEntity[RoborockDataUpdateCoordinator], Camer
         )
         session.preview_started = True
         self._raise_if_inactive(session_id, session)
+        await self._async_refresh_turn(attempts=_TURN_POLL_ATTEMPTS)
+        _LOGGER.info("Forwarding the browser video offer for %s", self.entity_id)
         await self._send(
             RoborockCommand.SEND_SDP_TO_ROBOT,
             sdp_offer_payload(offer_sdp),
@@ -268,6 +286,7 @@ class RoborockLiveCamera(CoordinatorEntity[RoborockDataUpdateCoordinator], Camer
         self._raise_if_inactive(session_id, session)
 
         session.ready = True
+        _LOGGER.info("Received a camera answer from %s", self.entity_id)
         session.send_message(WebRTCAnswer(answer))
         pending = session.pending_ice
         session.pending_ice = []
@@ -333,27 +352,29 @@ class RoborockLiveCamera(CoordinatorEntity[RoborockDataUpdateCoordinator], Camer
                 translation_placeholders={"command": command_name},
             ) from err
 
-    async def _async_refresh_turn(self) -> None:
+    async def _async_refresh_turn(self, attempts: int = 1) -> None:
         """Cache ephemeral TURN credentials advertised by the vacuum."""
-        try:
-            payload = _first(await self._send(RoborockCommand.GET_TURN_SERVER))
-        except HomeAssistantError:
-            _LOGGER.debug("Vacuum did not provide TURN credentials", exc_info=True)
-            return
-        if not isinstance(payload, dict):
-            return
-        url = payload.get("url")
-        if not isinstance(url, str) or not url:
-            return
-        username = payload.get("user")
-        credential = payload.get("pwd")
-        self._ice_servers = [
-            RTCIceServer(
-                url,
-                username if isinstance(username, str) else None,
-                credential if isinstance(credential, str) else None,
-            )
-        ]
+        for attempt in range(attempts):
+            try:
+                payload = _first(await self._send(RoborockCommand.GET_TURN_SERVER))
+            except HomeAssistantError:
+                _LOGGER.debug("Vacuum did not provide TURN credentials", exc_info=True)
+                return
+            url = payload.get("url") if isinstance(payload, dict) else None
+            if isinstance(url, str) and _is_ice_url(url):
+                username = payload.get("user")
+                credential = payload.get("pwd")
+                self._ice_servers = [
+                    RTCIceServer(
+                        url,
+                        username if isinstance(username, str) else None,
+                        credential if isinstance(credential, str) else None,
+                    )
+                ]
+                return
+            if attempt + 1 < attempts:
+                await asyncio.sleep(_SDP_POLL_DELAY)
+        _LOGGER.debug("Vacuum TURN server is not ready")
 
     async def _poll_sdp_answer(self, session_id: str, session: _CameraSession) -> str:
         """Poll until the vacuum returns its SDP answer."""
