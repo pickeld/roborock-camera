@@ -16,7 +16,18 @@ assert _spec is not None and _spec.loader is not None
 _util = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_util)
 camera_pin_digest = _util.camera_pin_digest
+normalize_pattern = _util.normalize_pattern
 sdp_offer_payload = _util.sdp_offer_payload
+
+
+def test_pattern_uses_the_app_grid() -> None:
+    """A drawn gesture is the digits of the dots, in order."""
+    assert normalize_pattern("1-4-7-8-9") == "14789"
+    assert normalize_pattern("14789") == "14789"
+    assert normalize_pattern("") == ""
+    assert normalize_pattern("123") is None
+    assert normalize_pattern("1123") is None
+    assert normalize_pattern("123a") is None
 
 
 def test_pin_digest_matches_the_robot_protocol() -> None:

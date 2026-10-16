@@ -10,9 +10,17 @@ The browser talks WebRTC directly to the vacuum. Home Assistant only forwards th
 2. Add `https://github.com/pickeld/roborock-camera` as an **Integration**.
 3. Download **Roborock Camera** and restart Home Assistant.
 4. Go to **Settings → Devices & services → Add integration → Roborock Camera**.
-5. Enter the numeric video PIN from the Roborock app.
+5. Enter the video pattern from the Roborock app as digits. The dots are numbered:
 
-The PIN is stored only as the digest the vacuum requires. A blank PIN in the integration options keeps the current digest.
+   ```
+   1 2 3
+   4 5 6
+   7 8 9
+   ```
+
+   The top row, left to right, is `123`. Use 4 to 9 dots, do not repeat a dot, and include every dot the line passes through.
+
+The pattern is stored only as the digest the vacuum requires. A blank pattern in the integration options keeps the current digest.
 
 ## Requirements
 

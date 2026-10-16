@@ -27,7 +27,7 @@ from .const import (
     DOMAIN,
     ROBOROCK_DOMAIN,
 )
-from .util import camera_pin_digest
+from .util import camera_pin_digest, normalize_pattern
 
 _PIN_SCHEMA = vol.Schema(
     {
@@ -64,11 +64,11 @@ class RoborockCameraConfigFlow(ConfigFlow, domain=DOMAIN):
 
         if user_input is not None:
             self._roborock_entry_id = user_input[CONF_ROBOROCK_ENTRY_ID]
-            return await self.async_step_pin()
+            return await self.async_step_pattern()
 
         if len(entries) == 1:
             self._roborock_entry_id = entries[0].entry_id
-            return await self.async_step_pin()
+            return await self.async_step_pattern()
 
         return self.async_show_form(
             step_id="user",
@@ -87,15 +87,15 @@ class RoborockCameraConfigFlow(ConfigFlow, domain=DOMAIN):
             ),
         )
 
-    async def async_step_pin(
+    async def async_step_pattern(
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
-        """Ask for the video PIN and store only the robot's digest."""
+        """Ask for the video pattern and store only the robot's digest."""
         errors: dict[str, str] = {}
         if user_input is not None:
-            pin = str(user_input.get(CONF_CAMERA_PIN, "")).strip()
-            if not pin:
-                errors["base"] = "pin_required"
+            pattern = normalize_pattern(str(user_input.get(CONF_CAMERA_PIN, "")))
+            if not pattern:
+                errors["base"] = "invalid_pattern"
             else:
                 assert self._roborock_entry_id is not None
                 await self.async_set_unique_id(self._roborock_entry_id)
@@ -107,11 +107,11 @@ class RoborockCameraConfigFlow(ConfigFlow, domain=DOMAIN):
                 return self.async_create_entry(
                     title=title,
                     data={CONF_ROBOROCK_ENTRY_ID: self._roborock_entry_id},
-                    options={CONF_CAMERA_PIN_HASH: camera_pin_digest(pin)},
+                    options={CONF_CAMERA_PIN_HASH: camera_pin_digest(pattern)},
                 )
 
         return self.async_show_form(
-            step_id="pin",
+            step_id="pattern",
             data_schema=_PIN_SCHEMA,
             errors=errors,
         )
@@ -121,23 +121,27 @@ class RoborockCameraConfigFlow(ConfigFlow, domain=DOMAIN):
     def async_get_options_flow(
         config_entry: ConfigEntry,
     ) -> OptionsFlow:
-        """Allow replacing the video PIN later."""
+        """Allow replacing the video pattern later."""
         return RoborockCameraOptionsFlow()
 
 
 class RoborockCameraOptionsFlow(OptionsFlow):
-    """Replace the stored video PIN."""
+    """Replace the stored video pattern."""
 
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
         """Store a new digest, or keep the current one when the field is blank."""
+        errors: dict[str, str] = {}
         if user_input is not None:
-            pin = str(user_input.get(CONF_CAMERA_PIN, "")).strip()
-            options = dict(self.config_entry.options)
-            if pin:
-                options[CONF_CAMERA_PIN_HASH] = camera_pin_digest(pin)
-            return self.async_create_entry(data=options)
+            pattern = normalize_pattern(str(user_input.get(CONF_CAMERA_PIN, "")))
+            if pattern is None:
+                errors["base"] = "invalid_pattern"
+            else:
+                options = dict(self.config_entry.options)
+                if pattern:
+                    options[CONF_CAMERA_PIN_HASH] = camera_pin_digest(pattern)
+                return self.async_create_entry(data=options)
 
         return self.async_show_form(
             step_id="init",
@@ -148,4 +152,5 @@ class RoborockCameraOptionsFlow(OptionsFlow):
                     )
                 }
             ),
+            errors=errors,
         )

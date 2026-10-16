@@ -8,16 +8,16 @@
           "roborock_entry_id": "Roborock account"
         }
       },
-      "pin": {
-        "title": "Video PIN",
-        "description": "Enter the numeric video PIN from the Roborock app. It is stored only as the digest the vacuum requires.",
+      "pattern": {
+        "title": "Video pattern",
+        "description": "Draw the same pattern you use in the Roborock app, written as digits. The dots are numbered left to right from the top: 1 2 3 / 4 5 6 / 7 8 9. The top row left to right is 123. Use 4 to 9 dots, with no repeats, and include every dot the line passes through. Only the digest the vacuum requires is stored.",
         "data": {
-          "camera_pin": "Video PIN"
+          "camera_pin": "Pattern"
         }
       }
     },
     "error": {
-      "pin_required": "Enter the video PIN from the Roborock app."
+      "invalid_pattern": "Enter the pattern as 4 to 9 digits from 1 to 9, with no repeated dots. The grid is 1 2 3, 4 5 6, 7 8 9."
     },
     "abort": {
       "no_roborock": "Add the built-in Roborock integration and wait until it is running before adding a camera.",
@@ -27,15 +27,18 @@
   "options": {
     "step": {
       "init": {
-        "title": "Video PIN",
-        "description": "Leave the field blank to keep the current PIN.",
+        "title": "Video pattern",
+        "description": "Leave the field blank to keep the current pattern.",
         "data": {
-          "camera_pin": "Video PIN"
+          "camera_pin": "Pattern"
         },
         "data_description": {
-          "camera_pin": "Numeric PIN from the Roborock app. Leave blank to keep the current PIN. Only the digest the vacuum requires is stored."
+          "camera_pin": "Same 3x3 pattern as the Roborock app, written as digits. The dots are 1 2 3 / 4 5 6 / 7 8 9. Leave blank to keep the current pattern. Only the digest the vacuum requires is stored."
         }
       }
+    },
+    "error": {
+      "invalid_pattern": "Enter the pattern as 4 to 9 digits from 1 to 9, with no repeated dots. The grid is 1 2 3, 4 5 6, 7 8 9."
     }
   },
   "entity": {
@@ -47,7 +50,7 @@
   },
   "exceptions": {
     "camera_pin_required": {
-      "message": "Set the Roborock video PIN in the integration options before viewing the camera."
+      "message": "Set the Roborock video pattern in the integration options before viewing the camera."
     },
     "camera_answer_timeout": {
       "message": "The vacuum did not return a camera stream in time."
