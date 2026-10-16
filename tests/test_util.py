@@ -85,6 +85,8 @@ def test_oversized_offer_keeps_h264_and_drops_candidates() -> None:
     assert offer_json_size(reduced) < 4096
     assert "a=ice-ufrag:abcd" in reduced
     assert "a=rtpmap:100 H264/90000" in reduced
+    assert "a=rtpmap:96 VP8/90000" not in reduced
+    assert "a=rtcp-fb:" not in reduced
     assert "a=candidate:" not in reduced
     assert extracted
     assert extracted[0]["candidate"].startswith("candidate:")
@@ -112,3 +114,42 @@ def test_codec_list_is_reduced_when_candidates_are_not_the_bulk() -> None:
     assert offer_json_size(reduced) < 4096
     assert "a=rtpmap:100 H264/90000" in reduced
     assert "a=rtpmap:96 VP8/90000" not in reduced
+
+
+def test_browser_offer_keeps_identity_and_baseline_h264() -> None:
+    """A small browser offer is rewritten to the shape the robot answers."""
+    offer = (
+        "v=0\r\n"
+        "o=- 9 1 IN IP4 127.0.0.1\r\n"
+        "s=-\r\n"
+        "t=0 0\r\n"
+        "a=group:BUNDLE 0\r\n"
+        "a=extmap-allow-mixed\r\n"
+        "m=video 9 UDP/TLS/RTP/SAVPF 102 104\r\n"
+        "c=IN IP4 0.0.0.0\r\n"
+        "a=rtcp:9 IN IP4 0.0.0.0\r\n"
+        "a=ice-ufrag:frombrowser\r\n"
+        "a=ice-pwd:browserpasswordvalue1\r\n"
+        "a=fingerprint:sha-256 AA:BB:CC:DD\r\n"
+        "a=setup:actpass\r\n"
+        "a=mid:0\r\n"
+        "a=recvonly\r\n"
+        "a=rtcp-mux\r\n"
+        "a=rtcp-rsize\r\n"
+        "a=rtpmap:102 H264/90000\r\n"
+        "a=fmtp:102 profile-level-id=42e01f\r\n"
+        "a=rtcp-fb:102 nack pli\r\n"
+        "a=rtpmap:104 H264/90000\r\n"
+        "a=fmtp:104 profile-level-id=640c1f\r\n"
+    )
+
+    reduced, extracted = shrink_offer(offer)
+
+    assert extracted == []
+    assert "a=ice-ufrag:frombrowser" in reduced
+    assert "a=fingerprint:sha-256 AA:BB:CC:DD" in reduced
+    assert "a=rtpmap:102 H264/90000" in reduced
+    assert "a=rtpmap:104 H264/90000" not in reduced
+    assert "a=rtcp-fb:" not in reduced
+    assert "a=rtcp:9" not in reduced
+    assert "a=extmap" not in reduced

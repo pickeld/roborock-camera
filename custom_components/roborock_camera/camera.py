@@ -261,10 +261,13 @@ class RoborockLiveCamera(CoordinatorEntity[RoborockDataUpdateCoordinator], Camer
         self._raise_if_inactive(session_id, session)
         await self._send(RoborockCommand.CHECK_HOMESEC_PASSWORD, {"password": pin_hash})
         self._raise_if_inactive(session_id, session)
-        await self._send(
-            RoborockCommand.SWITCH_VIDEO_QUALITY,
-            {"quality": _VIDEO_QUALITY},
-        )
+        try:
+            await self._send(
+                RoborockCommand.SWITCH_VIDEO_QUALITY,
+                {"quality": _VIDEO_QUALITY},
+            )
+        except HomeAssistantError:
+            _LOGGER.debug("Vacuum did not change video quality", exc_info=True)
         self._raise_if_inactive(session_id, session)
         await self._send(
             RoborockCommand.START_CAMERA_PREVIEW,
@@ -348,19 +351,30 @@ class RoborockLiveCamera(CoordinatorEntity[RoborockDataUpdateCoordinator], Camer
         command: RoborockCommand | str,
         params: dict[str, Any] | list[Any] | int | None = None,
     ) -> Any:
-        """Send a camera command on the cloud channel.
+        """Send a camera command, using the cloud channel and then local.
 
-        The Roborock app exchanges live-view signaling over MQTT. The local
-        channel can acknowledge the same commands while ``get_device_sdp``
-        stays on ``retry``, so camera commands go to the cloud session.
+        The Roborock app exchanges live-view signaling over MQTT. A long-lived
+        local session can acknowledge the same commands while the camera stays
+        on ``retry``, so the cloud channel is tried first. If that channel is
+        down, the local session is used instead of failing the stream.
         """
-        channel = getattr(self.coordinator.properties_api, "_mqtt_rpc_channel", None)
+        api = self.coordinator.properties_api
+        senders: list[Any] = []
+        mqtt_channel = getattr(api, "_mqtt_rpc_channel", None)
+        if mqtt_channel is not None:
+            senders.append(mqtt_channel)
+        senders.append(api.command)
+        last_error: RoborockException | None = None
+        for sender in senders:
+            try:
+                if sender is api.command:
+                    return await sender.send(command, params=params)
+                return await sender.send_command(command, params=params)
+            except RoborockException as err:
+                last_error = err
         try:
-            if channel is not None:
-                return await channel.send_command(command, params=params)
-            return await self.coordinator.properties_api.command.send(
-                command, params=params
-            )
+            assert last_error is not None
+            raise last_error
         except RoborockException as err:
             command_name = (
                 command.name if isinstance(command, RoborockCommand) else command
