@@ -55,9 +55,6 @@
     "camera_answer_timeout": {
       "message": "The vacuum did not return a camera stream in time."
     },
-    "camera_button_timeout": {
-      "message": "Press the power button on the robot once while the camera is opening. This model waits for that button before it sends video."
-    },
     "command_failed": {
       "message": "Command {command} failed."
     }

@@ -160,12 +160,6 @@ class RoborockLiveCamera(CoordinatorEntity[RoborockDataUpdateCoordinator], Camer
     async def async_added_to_hass(self) -> None:
         """Fetch TURN credentials so the first viewer can relay media."""
         await super().async_added_to_hass()
-        features = self.coordinator.properties_api.device_features
-        if getattr(features, "is_two_key_real_time_video_supported", None) is True:
-            _LOGGER.info(
-                "%s may require a press of the power button on the robot to show video",
-                self.entity_id,
-            )
         await self._async_refresh_turn()
 
     async def async_will_remove_from_hass(self) -> None:
@@ -259,11 +253,6 @@ class RoborockLiveCamera(CoordinatorEntity[RoborockDataUpdateCoordinator], Camer
         pin_hash: str,
     ) -> None:
         """Wake the vacuum, start the preview, and publish the answer."""
-        if self._needs_power_button():
-            _LOGGER.warning(
-                "Press the power button on the robot once so %s can start video",
-                self.entity_id,
-            )
         await self._stop_preview()
         try:
             await self._send(RoborockCommand.APP_WAKEUP_ROBOT)
@@ -428,17 +417,8 @@ class RoborockLiveCamera(CoordinatorEntity[RoborockDataUpdateCoordinator], Camer
         )
         raise HomeAssistantError(
             translation_domain=DOMAIN,
-            translation_key=(
-                "camera_button_timeout"
-                if self._needs_power_button()
-                else "camera_answer_timeout"
-            ),
+            translation_key="camera_answer_timeout",
         )
-
-    def _needs_power_button(self) -> bool:
-        """Return whether this robot waits for its power button before sending video."""
-        features = self.coordinator.properties_api.device_features
-        return getattr(features, "is_two_key_real_time_video_supported", None) is True
 
     def _answer_from_payload(self, payload: Any) -> str | None:
         """Return an SDP answer, and remember a secret-free description of the reply."""
