@@ -38,7 +38,7 @@ _LOGGER = logging.getLogger(__name__)
 
 PARALLEL_UPDATES = 1
 
-_SDP_POLL_ATTEMPTS = 60
+_SDP_POLL_ATTEMPTS = 120
 _SDP_POLL_DELAY = 0.25
 _ICE_POLL_ATTEMPTS = 20
 _ICE_POLL_DELAY = 0.25
@@ -259,6 +259,11 @@ class RoborockLiveCamera(CoordinatorEntity[RoborockDataUpdateCoordinator], Camer
         pin_hash: str,
     ) -> None:
         """Wake the vacuum, start the preview, and publish the answer."""
+        if self._needs_power_button():
+            _LOGGER.warning(
+                "Press the power button on the robot once so %s can start video",
+                self.entity_id,
+            )
         await self._stop_preview()
         try:
             await self._send(RoborockCommand.APP_WAKEUP_ROBOT)
@@ -423,8 +428,17 @@ class RoborockLiveCamera(CoordinatorEntity[RoborockDataUpdateCoordinator], Camer
         )
         raise HomeAssistantError(
             translation_domain=DOMAIN,
-            translation_key="camera_answer_timeout",
+            translation_key=(
+                "camera_button_timeout"
+                if self._needs_power_button()
+                else "camera_answer_timeout"
+            ),
         )
+
+    def _needs_power_button(self) -> bool:
+        """Return whether this robot waits for its power button before sending video."""
+        features = self.coordinator.properties_api.device_features
+        return getattr(features, "is_two_key_real_time_video_supported", None) is True
 
     def _answer_from_payload(self, payload: Any) -> str | None:
         """Return an SDP answer, and remember a secret-free description of the reply."""
